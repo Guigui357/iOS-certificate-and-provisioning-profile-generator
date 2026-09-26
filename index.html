@@ -60,7 +60,7 @@
 
   <script>
     let publicKey, privateKey, exportedPem, exportedKey;
-    const teamId = "NNGHJ36ZX2"; // ID constante sincronizado entre o certificado e o mobileprovision
+    const teamId = "YDEV123456";
 
     async function generateKey() {
       try {
@@ -140,7 +140,6 @@
       cert.validity.notAfter = new Date();
       cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 6);
 
-      // CORREÇÃO AQUI: Adicionado organizationalUnitName (OU) com o Team ID real no Subject do Dono
       const subjectAttrs = [
         { name: 'countryName', value: 'US' },
         { name: 'organizationName', value: 'YDEV Corp' },
@@ -156,8 +155,27 @@
         { name: 'commonName', value: 'Apple Worldwide Developer Relations Certification Authority' }
       ];
       cert.setIssuer(issuerAttrs);
+
+      // CORREÇÃO: Adicionando extensões fundamentais de Code Signing EKU ao certificado
+      cert.setExtensions([
+        {
+          name: 'basicConstraints',
+          cA: false
+        },
+        {
+          name: 'keyUsage',
+          digitalSignature: true,
+          nonRepudiation: true,
+          keyEncipherment: true,
+          dataEncipherment: true
+        },
+        {
+          name: 'extKeyUsage',
+          codeSigning: true // Força o identificador de Code Signing (1.3.6.1.5.5.7.3.3)
+        }
+      ]);
       
-      cert.sign(privateKeyObj);
+      cert.sign(privateKeyObj, forge.md.sha256.create());
       return { privateKeyObj, cert };
     }
 
