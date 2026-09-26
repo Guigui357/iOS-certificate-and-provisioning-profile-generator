@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>YDEV Provision</title>
-  <script src="https://jsdelivr.net"></script>
+  <!-- CDN atualizado e estável para evitar travamentos de rede -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.4.0/forge.min.js"></script>
   <style>
     body {
       font-family: sans-serif;
@@ -45,7 +46,7 @@
 </head>
 <body>
   <h1>YDEV Provision</h1>
-  <p>Generate your own certificate and mobile provisioning profile.<br>This tool simulates Apple’s infrastructure. (for testing)</p>
+  <p>Generate your own certificate and mobile provisioning profile.<br>This tool does not use Apple’s infrastructure.</p>
 
   <input type="text" id="cn" placeholder="Common Name (e.g. YDEV Corp)" /><br>
   <input type="text" id="uuid" placeholder="Seu UUID aqui (ex: E62B1234...)" />
@@ -62,23 +63,30 @@
     let publicKey, privateKey, exportedPem, exportedKey;
 
     async function generateKey() {
-      const keyPair = await window.crypto.subtle.generateKey(
-        {
-          name: "RSASSA-PKCS1-v1_5",
-          modulusLength: 2048,
-          publicExponent: new Uint8Array([1, 0, 1]),
-          hash: "SHA-256"
-        },
-        true,
-        ["sign", "verify"]
-      );
-      publicKey = keyPair.publicKey;
-      privateKey = keyPair.privateKey;
+      try {
+        document.getElementById("status").textContent = "⏳ Generating Key Pair (Please wait)...";
+        
+        // Corrigido: O expoente público precisa ter a sequência binária [1, 0, 1] (equivalente a 65537)
+        const keyPair = await window.crypto.subtle.generateKey(
+          {
+            name: "RSASSA-PKCS1-v1_5",
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]), 
+            hash: "SHA-256"
+          },
+          true,
+          ["sign", "verify"]
+        );
+        publicKey = keyPair.publicKey;
+        privateKey = keyPair.privateKey;
 
-      exportedPem = await crypto.subtle.exportKey("spki", publicKey);
-      exportedKey = await crypto.subtle.exportKey("pkcs8", privateKey);
+        exportedPem = await crypto.subtle.exportKey("spki", publicKey);
+        exportedKey = await crypto.subtle.exportKey("pkcs8", privateKey);
 
-      document.getElementById("status").textContent = "✅ Key pair generated.";
+        document.getElementById("status").textContent = "✅ Key pair generated successfully!";
+      } catch (err) {
+        document.getElementById("status").textContent = "❌ Error generating keys: " + err.message;
+      }
     }
 
     function arrayBufferToBase64(buffer) {
@@ -97,7 +105,7 @@
     }
 
     function downloadPEM() {
-      if (!exportedPem) return;
+      if (!exportedPem) { alert("Generate key pair first!"); return; }
       const base64 = arrayBufferToBase64(exportedPem);
       const pemText = formatAsPem(base64, "-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----");
       
@@ -109,7 +117,7 @@
     }
 
     function downloadPrivateKey() {
-      if (!exportedKey) return;
+      if (!exportedKey) { alert("Generate key pair first!"); return; }
       const base64 = arrayBufferToBase64(exportedKey);
       const pemText = formatAsPem(base64, "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----");
 
@@ -164,7 +172,6 @@
 
     function generateProvision() {
       const cn = document.getElementById("cn").value || "YDEV Corporation";
-      // Lê o valor do campo UUID ou define um padrão caso esteja vazio
       const userUuid = document.getElementById("uuid").value.trim() || "E62B1234-5678-ABCD-EF01-123456789ABC";
       
       const mobileProvision = `<?xml version="1.0" encoding="UTF-8"?>
