@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>YDEV Provision</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.4.0/forge.min.js"></script>
+  <script src="https://cloudflare.com"></script>
   <style>
     body {
       font-family: sans-serif;
@@ -60,6 +60,7 @@
 
   <script>
     let publicKey, privateKey, exportedPem, exportedKey;
+    const teamId = "NNGHJ36ZX2"; // ID constante sincronizado entre o certificado e o mobileprovision
 
     async function generateKey() {
       try {
@@ -139,7 +140,13 @@
       cert.validity.notAfter = new Date();
       cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 6);
 
-      const subjectAttrs = [{ name: 'commonName', value: cn }];
+      // CORREÇÃO AQUI: Adicionado organizationalUnitName (OU) com o Team ID real no Subject do Dono
+      const subjectAttrs = [
+        { name: 'countryName', value: 'US' },
+        { name: 'organizationName', value: 'YDEV Corp' },
+        { name: 'organizationalUnitName', value: teamId }, 
+        { name: 'commonName', value: cn }
+      ];
       cert.setSubject(subjectAttrs);
 
       const issuerAttrs = [
@@ -185,7 +192,6 @@
       
       const { privateKeyObj, cert } = buildCertificate();
 
-      // Transforma o certificado em base64 bruto para injetar dentro da tag DeveloperCertificates do XML
       const certDer = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes();
       const certBase64 = window.btoa(certDer);
 
@@ -197,7 +203,7 @@
   <string>${cn}</string>
   <key>ApplicationIdentifierPrefix</key>
   <array>
-    <string>YDEV123456</string>
+    <string>${teamId}</string>
   </array>
   <key>Platform</key>
   <array>
@@ -212,12 +218,12 @@
   <key>Entitlements</key>
   <dict>
     <key>application-identifier</key>
-    <string>YDEV123456.*</string>
+    <string>${teamId}.*</string>
     <key>get-task-allow</key>
     <true/>
     <key>keychain-access-groups</key>
     <array>
-      <string>YDEV123456.*</string>
+      <string>${teamId}.*</string>
     </array>
   </dict>
   <key>Name</key>
@@ -228,7 +234,7 @@
   <string>${cn}</string>
   <key>TeamIdentifier</key>
   <array>
-    <string>YDEV123456</string>
+    <string>${teamId}</string>
   </array>
   <key>TimeToLive</key>
   <integer>3650</integer>
@@ -246,7 +252,6 @@
         p7.content = forge.util.createBuffer(xmlContent, 'utf8');
         p7.addCertificate(cert);
         
-        // Corrigido: Removido o campo manual de authenticatedAttributes para o forge cuidar do hash nativamente
         p7.addSigner({
           key: privateKeyObj,
           certificate: cert,
