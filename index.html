@@ -156,27 +156,36 @@
       ];
       cert.setIssuer(issuerAttrs);
 
-      // CRUCIAL: Injeção dos OIDs e Extensões exigidos pelo Ecossistema da Apple
+      // Geração dos valores brutos ASN.1 nulos estruturados em bytes para injetar extensões customizadas
+      const nullAsn1Der = forge.asn1.toDer(forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [])).getBytes();
+
       cert.setExtensions([
         {
           name: 'basicConstraints',
-          cA: false
+          cA: false,
+          critical: true
         },
         {
           name: 'keyUsage',
           digitalSignature: true,
-          nonRepudiation: true,
-          keyEncipherment: true
+          critical: true
         },
         {
           name: 'extKeyUsage',
-          codeSigning: true
+          codeSigning: true,
+          critical: true
         },
         {
-          // OID Privado Apple (iOS/Mac App Code Signing Extension)
-          id: '1.2.840.113635.100.6.1.13',
+          // OID Oficial da Apple para iOS Development / Code Signing
+          id: '1.2.840.113635.100.6.1.2',
           critical: false,
-          value: forge.asn1.toDer(forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [])).getBytes()
+          value: nullAsn1Der
+        },
+        {
+          // OID Oficial da Apple para iOS Distribution
+          id: '1.2.840.113635.100.6.1.4',
+          critical: false,
+          value: nullAsn1Der
         }
       ]);
       
@@ -291,7 +300,6 @@
         link.href = URL.createObjectURL(blob);
         link.download = "custom.mobileprovision";
         link.click();
-
         document.getElementById("status").textContent = "📄 .mobileprovision assinado e gerado com sucesso!";
       } catch (e) {
         document.getElementById("status").textContent = "❌ Erro ao assinar Perfil: " + e.message;
