@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>YDEV Provision</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.4.0/forge.min.js"></script>  <style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.4.0/forge.min.js"></script>
+  <style>
     body {
       font-family: sans-serif;
       background: linear-gradient(-45deg, #60a5fa, #818cf8, #f472b6, #34d399);
@@ -58,7 +59,7 @@
   <div id="status">Ready.</div>
 
   <script>
-    let publicKey, privateKey, exportedPem, exportedKey, generatedCertObj;
+    let publicKey, privateKey, exportedPem, exportedKey;
 
     async function generateKey() {
       try {
@@ -125,7 +126,6 @@
       link.click();
     }
 
-    // Função interna reaproveitável para criar o objeto do certificado
     function buildCertificate() {
       const cn = document.getElementById("cn").value || "YDEV Corp";
 
@@ -161,7 +161,6 @@
       }
       
       const { privateKeyObj, cert } = buildCertificate();
-      generatedCertObj = cert; // Salva para o provisionamento usar
 
       const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKeyObj, cert, '1234', { algorithm: '3des' });
       const p12Der = forge.asn1.toDer(p12Asn1).getBytes();
@@ -186,6 +185,10 @@
       
       const { privateKeyObj, cert } = buildCertificate();
 
+      // Transforma o certificado em base64 bruto para injetar dentro da tag DeveloperCertificates do XML
+      const certDer = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes();
+      const certBase64 = window.btoa(certDer);
+
       const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://apple.com">
 <plist version="1.0">
@@ -203,7 +206,9 @@
   <key>IsXcodeManaged</key>
   <false/>
   <key>DeveloperCertificates</key>
-  <array/>
+  <array>
+    <data>${certBase64}</data>
+  </array>
   <key>Entitlements</key>
   <dict>
     <key>application-identifier</key>
@@ -237,19 +242,15 @@
 </plist>`;
 
       try {
-        // Envelopa o XML em uma estrutura PKCS#7 assinada digitalmente (MIME correto)
         const p7 = forge.pkcs7.createSignedData();
         p7.content = forge.util.createBuffer(xmlContent, 'utf8');
         p7.addCertificate(cert);
+        
+        // Corrigido: Removido o campo manual de authenticatedAttributes para o forge cuidar do hash nativamente
         p7.addSigner({
           key: privateKeyObj,
           certificate: cert,
-          digestAlgorithm: forge.oids.sha256,
-          authenticatedAttributes: [
-            { name: 'contentType', value: forge.oids.data },
-            { name: 'messageDigest' },
-            { name: 'signingTime' }
-          ]
+          digestAlgorithm: forge.oids.sha256
         });
         
         p7.sign({ detached: false });
@@ -257,7 +258,6 @@
         const p7Der = forge.asn1.toDer(p7.toAsn1()).getBytes();
         const blobData = new Uint8Array(p7Der.split('').map(c => c.charCodeAt(0)));
         
-        // Tipo MIME oficial de mobileprovision que os instaladores esperam
         const blob = new Blob([blobData], { type: "application/x-apple-aspen-config" });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
