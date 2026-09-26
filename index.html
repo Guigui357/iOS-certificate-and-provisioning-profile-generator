@@ -60,7 +60,7 @@
 
   <script>
     let publicKey, privateKey, exportedPem, exportedKey;
-    const teamId = "YDEV123456";
+    const teamId = "NNGHJ36ZX2";
 
     async function generateKey() {
       try {
@@ -156,7 +156,7 @@
       ];
       cert.setIssuer(issuerAttrs);
 
-      // CORREÇÃO: Adicionando extensões fundamentais de Code Signing EKU ao certificado
+      // CRUCIAL: Injeção dos OIDs e Extensões exigidos pelo Ecossistema da Apple
       cert.setExtensions([
         {
           name: 'basicConstraints',
@@ -166,12 +166,17 @@
           name: 'keyUsage',
           digitalSignature: true,
           nonRepudiation: true,
-          keyEncipherment: true,
-          dataEncipherment: true
+          keyEncipherment: true
         },
         {
           name: 'extKeyUsage',
-          codeSigning: true // Força o identificador de Code Signing (1.3.6.1.5.5.7.3.3)
+          codeSigning: true
+        },
+        {
+          // OID Privado Apple (iOS/Mac App Code Signing Extension)
+          id: '1.2.840.113635.100.6.1.13',
+          critical: false,
+          value: forge.asn1.toDer(forge.asn1.create(forge.asn1.Class.UNIVERSAL, forge.asn1.Type.SEQUENCE, true, [])).getBytes()
         }
       ]);
       
