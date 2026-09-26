@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>YDEV Provision</title>
-  <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
+  <script src="https://jsdelivr.net"></script>
   <style>
     body {
       font-family: sans-serif;
@@ -28,6 +27,8 @@
       margin-top: 1em;
       border-radius: 6px;
       border: none;
+      width: 300px;
+      box-sizing: border-box;
     }
     button {
       background: white;
@@ -44,13 +45,16 @@
 </head>
 <body>
   <h1>YDEV Provision</h1>
-  <p>Generate your own certificate and mobile provisioning profile.<br>This tool does not use Apple’s infrastructure.</p>
+  <p>Generate your own certificate and mobile provisioning profile.<br>This tool simulates Apple’s infrastructure. (for testing)</p>
 
-  <input type="text" id="cn" placeholder="Common Name (e.g. YDEV Corp)" />
+  <input type="text" id="cn" placeholder="Common Name (e.g. YDEV Corp)" /><br>
+  <input type="text" id="uuid" placeholder="Seu UUID aqui (ex: E62B1234...)" />
+  
+  <br>
   <button onclick="generateKey()">Generate Key Pair</button>
-  <button onclick="downloadPEM()">Download PEM</button>
+  <button onclick="downloadPEM()">Download PEM (Public Key)</button>
   <button onclick="downloadPrivateKey()">Download Private Key</button>
-  <button onclick="exportP12()">Export as .P12 (No Password)</button>
+  <button onclick="exportP12()">Export as .P12 (Senha: 1234)</button>
   <button onclick="generateProvision()">Generate .mobileprovision</button>
   <div id="status">Ready.</div>
 
@@ -77,9 +81,27 @@
       document.getElementById("status").textContent = "✅ Key pair generated.";
     }
 
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    }
+
+    function formatAsPem(base64Str, header, footer) {
+      const lines = base64Str.match(/.{1,64}/g).join('\n');
+      return `${header}\n${lines}\n${footer}`;
+    }
+
     function downloadPEM() {
       if (!exportedPem) return;
-      const blob = new Blob([exportedPem], { type: "application/octet-stream" });
+      const base64 = arrayBufferToBase64(exportedPem);
+      const pemText = formatAsPem(base64, "-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----");
+      
+      const blob = new Blob([pemText], { type: "text/plain;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = "public.pem";
@@ -88,7 +110,10 @@
 
     function downloadPrivateKey() {
       if (!exportedKey) return;
-      const blob = new Blob([exportedKey], { type: "application/octet-stream" });
+      const base64 = arrayBufferToBase64(exportedKey);
+      const pemText = formatAsPem(base64, "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----");
+
+      const blob = new Blob([pemText], { type: "text/plain;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = "private.key";
@@ -96,6 +121,10 @@
     }
 
     function exportP12() {
+      if (!exportedKey || !exportedPem) {
+        document.getElementById("status").textContent = "❌ Generate key pair first.";
+        return;
+      }
       const cn = document.getElementById("cn").value || "YDEV Corp";
 
       const privateKeyObj = forge.pki.privateKeyFromAsn1(forge.asn1.fromDer(forge.util.createBuffer(exportedKey)));
@@ -108,12 +137,20 @@
       cert.validity.notAfter = new Date();
       cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 6);
 
-      const attrs = [{ name: 'commonName', value: cn }];
-      cert.setSubject(attrs);
-      cert.setIssuer(attrs);
+      const subjectAttrs = [{ name: 'commonName', value: cn }];
+      cert.setSubject(subjectAttrs);
+
+      const issuerAttrs = [
+        { name: 'countryName', value: 'US' },
+        { name: 'organizationName', value: 'Apple Inc.' },
+        { name: 'organizationalUnitName', value: 'Apple Worldwide Developer Relations' },
+        { name: 'commonName', value: 'Apple Worldwide Developer Relations Certification Authority' }
+      ];
+      cert.setIssuer(issuerAttrs);
+      
       cert.sign(privateKeyObj);
 
-      const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKeyObj, cert, '', { algorithm: '3des' });
+      const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKeyObj, cert, '1234', { algorithm: '3des' });
       const p12Der = forge.asn1.toDer(p12Asn1).getBytes();
       const blob = new Blob([new Uint8Array(forge.util.createBuffer(p12Der, 'binary').bytes().split('').map(c => c.charCodeAt(0)))], { type: 'application/x-pkcs12' });
 
@@ -122,20 +159,74 @@
       link.download = "certificate.p12";
       link.click();
 
-      document.getElementById("status").textContent = "📦 Exported certificate.p12";
+      document.getElementById("status").textContent = "📦 Exported certificate.p12 (Password: 1234)";
     }
 
     function generateProvision() {
       const cn = document.getElementById("cn").value || "YDEV Corporation";
+      // Lê o valor do campo UUID ou define um padrão caso esteja vazio
+      const userUuid = document.getElementById("uuid").value.trim() || "E62B1234-5678-ABCD-EF01-123456789ABC";
+      
       const mobileProvision = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://apple.com">
 <plist version="1.0">
 <dict>
-  <key>AppIDName</key><string>${cn}</string>
-  <key>Platform</key><array><string>iOS</string></array>
-  <key>IsXcodeManaged</key><false/>
-  <key>TeamName</key><string>${cn}</string>
-  <key>ExpirationDate</key><date>2031-01-01T00:00:00Z</date>
+  <key>AppIDName</key>
+  <string>${cn}</string>
+  
+  <key>ApplicationIdentifierPrefix</key>
+  <array>
+    <string>YDEV123456</string>
+  </array>
+  
+  <key>Platform</key>
+  <array>
+    <string>iOS</string>
+  </array>
+  
+  <key>IsXcodeManaged</key>
+  <false/>
+  
+  <key>DeveloperCertificates</key>
+  <array/>
+  
+  <key>Entitlements</key>
+  <dict>
+    <key>application-identifier</key>
+    <string>YDEV123456.*</string>
+    <key>get-task-allow</key>
+    <true/>
+    <key>keychain-access-groups</key>
+    <array>
+      <string>YDEV123456.*</string>
+    </array>
+  </dict>
+  
+  <key>Name</key>
+  <string>${cn} Provision</string>
+  
+  <key>ProvisionsAllDevices</key>
+  <true/>
+  
+  <key>TeamName</key>
+  <string>${cn}</string>
+  
+  <key>TeamIdentifier</key>
+  <array>
+    <string>YDEV123456</string>
+  </array>
+  
+  <key>TimeToLive</key>
+  <integer>3650</integer>
+  
+  <key>UUID</key>
+  <string>${userUuid}</string>
+  
+  <key>Version</key>
+  <integer>1</integer>
+  
+  <key>ExpirationDate</key>
+  <date>2036-01-01T00:00:00Z</date>
 </dict>
 </plist>`;
 
