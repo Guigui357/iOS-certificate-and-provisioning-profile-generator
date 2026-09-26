@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>YDEV Provision</title>
-  <!-- CDN atualizado e estável para evitar travamentos de rede -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/forge/1.4.0/forge.min.js"></script>
+  <script src="https://cloudflare.com"></script>
   <style>
     body {
       font-family: sans-serif;
@@ -60,13 +59,12 @@
   <div id="status">Ready.</div>
 
   <script>
-    let publicKey, privateKey, exportedPem, exportedKey;
+    let publicKey, privateKey, exportedPem, exportedKey, generatedCertObj;
 
     async function generateKey() {
       try {
         document.getElementById("status").textContent = "⏳ Generating Key Pair (Please wait)...";
         
-        // Corrigido: O expoente público precisa ter a sequência binária [1, 0, 1] (equivalente a 65537)
         const keyPair = await window.crypto.subtle.generateKey(
           {
             name: "RSASSA-PKCS1-v1_5",
@@ -128,11 +126,8 @@
       link.click();
     }
 
-    function exportP12() {
-      if (!exportedKey || !exportedPem) {
-        document.getElementById("status").textContent = "❌ Generate key pair first.";
-        return;
-      }
+    // Função interna reaproveitável para criar o objeto do certificado
+    function buildCertificate() {
       const cn = document.getElementById("cn").value || "YDEV Corp";
 
       const privateKeyObj = forge.pki.privateKeyFromAsn1(forge.asn1.fromDer(forge.util.createBuffer(exportedKey)));
@@ -157,6 +152,17 @@
       cert.setIssuer(issuerAttrs);
       
       cert.sign(privateKeyObj);
+      return { privateKeyObj, cert };
+    }
+
+    function exportP12() {
+      if (!exportedKey || !exportedPem) {
+        document.getElementById("status").textContent = "❌ Generate key pair first.";
+        return;
+      }
+      
+      const { privateKeyObj, cert } = buildCertificate();
+      generatedCertObj = cert; // Salva para o provisionamento usar
 
       const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKeyObj, cert, '1234', { algorithm: '3des' });
       const p12Der = forge.asn1.toDer(p12Asn1).getBytes();
@@ -171,32 +177,34 @@
     }
 
     function generateProvision() {
+      if (!exportedKey || !exportedPem) {
+        document.getElementById("status").textContent = "❌ Generate key pair first e clique em Export .P12.";
+        return;
+      }
+
       const cn = document.getElementById("cn").value || "YDEV Corporation";
       const userUuid = document.getElementById("uuid").value.trim() || "E62B1234-5678-ABCD-EF01-123456789ABC";
       
-      const mobileProvision = `<?xml version="1.0" encoding="UTF-8"?>
+      const { privateKeyObj, cert } = buildCertificate();
+
+      const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://apple.com">
 <plist version="1.0">
 <dict>
   <key>AppIDName</key>
   <string>${cn}</string>
-  
   <key>ApplicationIdentifierPrefix</key>
   <array>
     <string>YDEV123456</string>
   </array>
-  
   <key>Platform</key>
   <array>
     <string>iOS</string>
   </array>
-  
   <key>IsXcodeManaged</key>
   <false/>
-  
   <key>DeveloperCertificates</key>
   <array/>
-  
   <key>Entitlements</key>
   <dict>
     <key>application-identifier</key>
@@ -208,42 +216,59 @@
       <string>YDEV123456.*</string>
     </array>
   </dict>
-  
   <key>Name</key>
   <string>${cn} Provision</string>
-  
   <key>ProvisionsAllDevices</key>
   <true/>
-  
   <key>TeamName</key>
   <string>${cn}</string>
-  
   <key>TeamIdentifier</key>
   <array>
     <string>YDEV123456</string>
   </array>
-  
   <key>TimeToLive</key>
   <integer>3650</integer>
-  
   <key>UUID</key>
   <string>${userUuid}</string>
-  
   <key>Version</key>
   <integer>1</integer>
-  
   <key>ExpirationDate</key>
   <date>2036-01-01T00:00:00Z</date>
 </dict>
 </plist>`;
 
-      const blob = new Blob([mobileProvision], { type: "application/xml" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "custom.mobileprovision";
-      link.click();
+      try {
+        // Envelopa o XML em uma estrutura PKCS#7 assinada digitalmente (MIME correto)
+        const p7 = forge.pkcs7.createSignedData();
+        p7.content = forge.util.createBuffer(xmlContent, 'utf8');
+        p7.addCertificate(cert);
+        p7.addSigner({
+          key: privateKeyObj,
+          certificate: cert,
+          digestAlgorithm: forge.oids.sha256,
+          authenticatedAttributes: [
+            { name: 'contentType', value: forge.oids.data },
+            { name: 'messageDigest' },
+            { name: 'signingTime' }
+          ]
+        });
+        
+        p7.sign({ detached: false });
+        
+        const p7Der = forge.asn1.toDer(p7.toAsn1()).getBytes();
+        const blobData = new Uint8Array(p7Der.split('').map(c => c.charCodeAt(0)));
+        
+        // Tipo MIME oficial de mobileprovision que os instaladores esperam
+        const blob = new Blob([blobData], { type: "application/x-apple-aspen-config" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "custom.mobileprovision";
+        link.click();
 
-      document.getElementById("status").textContent = "📄 Provisioning profile generated.";
+        document.getElementById("status").textContent = "📄 .mobileprovision assinado e gerado com sucesso!";
+      } catch (e) {
+        document.getElementById("status").textContent = "❌ Erro ao assinar Perfil: " + e.message;
+      }
     }
   </script>
 </body>
